@@ -4,7 +4,8 @@ project(vins)
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++14")
 #-DEIGEN_USE_MKL_ALL")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
+# set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O0 -Wall -g")
 
 find_package(catkin REQUIRED COMPONENTS
     roscpp
@@ -18,7 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 find_package(OpenCV 4 REQUIRED)
 
-# message(WARNING "OpenCV_VERSION: ${OpenCV_VERSION}")
+message(WARNING "OpenCV_VERSION: ${OpenCV_VERSION}")
 
 find_package(Ceres REQUIRED)
 
@@ -49,7 +50,15 @@ add_library(vins_lib
     src/initial/initial_aligment.cpp
     src/initial/initial_sfm.cpp
     src/initial/initial_ex_rotation.cpp
-    src/featureTracker/feature_tracker.cpp)
+    src/featureTracker/feature_tracker.cpp
+    src/base/linebase.cpp                                     # line representation
+    src/featureTracker/linedet/lsd.cpp                        # lsd
+    src/featureTracker/linedet/EDLineDetector.cpp             # edline
+    src/featureTracker/linedet/MultiOctaveSegmentDetector.cpp # lbd
+    src/featureTracker/linedet/LineBandDescriptor.cpp         # lbd
+    src/featureTracker/linedet/MultiScaleMatching.cpp         # lbd matcher
+    src/featureTracker/linedet/PairwiseLineMatching.cpp       # lbd matcher
+    src/featureTracker/line_feature_tracker.cpp)
 target_link_libraries(vins_lib ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES})
 
 

@@ -1,0 +1,7 @@
+<launch>
+  <arg name="config_path" default="$(find vins)/../config/kitti_odom/kitti_config00-02.yaml"/>
+  <arg name="data_path" default="/media/sungho/hdd_2tb/datasets/kitti_odom/dataset/sequences/00/"/>
+  <node pkg="vins" type="kitti_odom_test" name="kitti_odom_test" args="$(arg config_path) $(arg data_path)" output="screen" />
+
+  <!-- <node name="rvizvisualisation" pkg="rviz" type="rviz" output="log" args="-d $(find vins)/../config/vins_rviz_config.rviz" /> -->
+</launch>

@@ -1,0 +1,1 @@
+docker exec -it pl-vins /bin/bash

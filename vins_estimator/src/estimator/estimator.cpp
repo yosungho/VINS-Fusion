@@ -109,6 +109,7 @@ void Estimator::setParameter()
     g = G;
     cout << "set g " << g.transpose() << endl;
     featureTracker.readIntrinsicParameter(CAM_NAMES);
+    linefeatureTracker.readIntrinsicParameter(CAM_NAMES);
 
     std::cout << "MULTIPLE_THREAD is " << MULTIPLE_THREAD << '\n';
     if (MULTIPLE_THREAD && !initThreadFlag)
@@ -161,12 +162,17 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
 {
     inputImageCnt++;
     map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame;
+    map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> linefeatureFrame;
     TicToc featureTrackerTime;
 
-    if(_img1.empty())
+    if(_img1.empty()) {
         featureFrame = featureTracker.trackImage(t, _img);
-    else
+        linefeatureFrame = linefeatureTracker.trackImage(t, _img);
+    }
+    else {
         featureFrame = featureTracker.trackImage(t, _img, _img1);
+        linefeatureFrame = linefeatureTracker.trackImage(t, _img, _img1);
+    }
     //printf("featureTracker time: %f\n", featureTrackerTime.toc());
 
     if (SHOW_TRACK)

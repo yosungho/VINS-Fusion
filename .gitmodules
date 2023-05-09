@@ -1,0 +1,6 @@
+[submodule "tools/pytlbd"]
+	path = tools/pytlbd
+	url = https://github.com/iago-suarez/pytlbd.git
+[submodule "tools/pytlsd"]
+	path = tools/pytlsd
+	url = https://github.com/rpautrat/pytlsd.git

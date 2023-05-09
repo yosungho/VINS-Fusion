@@ -171,7 +171,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         TicToc t_m;
         setMask();
         ROS_DEBUG("set mask costs %fms", t_m.toc());
-
+        
         ROS_DEBUG("detect feature begins");
         TicToc t_t;
         int n_max_cnt = MAX_CNT - static_cast<int>(cur_pts.size());

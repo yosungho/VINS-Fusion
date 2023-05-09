@@ -37,10 +37,10 @@ COPY ./ $CATKIN_WS/src/VINS-Fusion/
 WORKDIR $CATKIN_WS
 ENV TERM xterm
 ENV PYTHONIOENCODING UTF-8
-RUN catkin config \
-      --extend /opt/ros/$ROS_DISTRO \
-      --cmake-args \
-        -DCMAKE_BUILD_TYPE=Release && \
-    catkin build && \
-    sed -i '/exec "$@"/i \
-            source "/root/catkin_ws/devel/setup.bash"' /ros_entrypoint.sh
+# RUN catkin config \
+#       --extend /opt/ros/$ROS_DISTRO \
+#       --cmake-args \
+#         -DCMAKE_BUILD_TYPE=Release && \
+#     catkin build && \
+#     sed -i '/exec "$@"/i \
+#             source "/root/catkin_ws/devel/setup.bash"' /ros_entrypoint.sh

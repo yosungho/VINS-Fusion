@@ -42,7 +42,7 @@ int main(int argc, char** argv)
 		printf("please intput: rosrun vins kitti_odom_test [config file] [data folder] \n"
 			   "for example: rosrun vins kitti_odom_test "
 			   "~/catkin_ws/src/VINS-Fusion/config/kitti_odom/kitti_config00-02.yaml "
-			   "/media/tony-ws1/disk_D/kitti/odometry/sequences/00/ \n");
+			   "/dataset/debug/kitti/odometry/sequences/00/ \n");
 		return 1;
 	}
 
@@ -101,7 +101,6 @@ int main(int argc, char** argv)
 			sensor_msgs::ImagePtr imRightMsg = cv_bridge::CvImage(std_msgs::Header(), "mono8", imRight).toImageMsg();
 			imRightMsg->header.stamp = ros::Time(imageTimeList[i]);
 			pubRightImage.publish(imRightMsg);
-
 
 			estimator.inputImage(imageTimeList[i], imLeft, imRight);
 			
