@@ -99,6 +99,10 @@ public:
     void visualizeLineMatches(const cv::Mat &cvLeftImage, const cv::Mat &cvRightImage,
                   const std::vector<std::vector<KeyLine>> &linesInLeft, const std::vector<std::vector<KeyLine>> &linesInRight,
                   const std::vector<std::pair<uint32_t, uint32_t>> &goodMatches);
+    void drawTrack(const cv::Mat &cvLeftImage, const cv::Mat &cvRightImage,
+                  const std::vector<std::vector<KeyLine>> &linesInLeft, const std::vector<std::vector<KeyLine>> &linesInRight,
+                  const std::vector<std::pair<uint32_t, uint32_t>> &goodMatches);
+    cv::Mat getTrackImage();
     int row, col;
     std::map<uint64_t, int> num_tracked;    // id, tracked_num
     bool is_first_frame = true;
@@ -106,6 +110,7 @@ public:
     cv::Mat imTrack;
     cv::Mat mask;
     cv::Mat fisheye_mask;
+    cv::Mat image_track_;
     FrameLinesPtr prev_frame_, cur_frame_, cur_right_frame_;
 
 

@@ -166,6 +166,7 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
     TicToc featureTrackerTime;
 
     if(_img1.empty()) {
+        printf("_img1.empty()\rn");
         featureFrame = featureTracker.trackImage(t, _img);
         linefeatureFrame = linefeatureTracker.trackImage(t, _img);
     }
@@ -178,7 +179,14 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
     if (SHOW_TRACK)
     {
         cv::Mat imgTrack = featureTracker.getTrackImage();
-        pubTrackImage(imgTrack, t);
+        pubTrackImage(imgTrack, t, "point");
+
+        cv::Mat lineimgTrack = linefeatureTracker.getTrackImage();
+        std::ostringstream oss;
+        oss << "/home/sungho/plvinsfusion_ws/debug/line_track_" << inputImageCnt << ".png";
+        std::string fname = oss.str();
+        cv::imwrite(fname, lineimgTrack);
+        // pubTrackImage(lineimgTrack, t, "line");
     }
     
     if(MULTIPLE_THREAD)  
@@ -187,6 +195,7 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
         {
             mBuf.lock();
             featureBuf.push(make_pair(t, featureFrame));
+            linefeatureBuf.push(make_pair(t, linefeatureFrame));
             mBuf.unlock();
         }
     }
@@ -194,6 +203,7 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
     {
         mBuf.lock();
         featureBuf.push(make_pair(t, featureFrame));
+        linefeatureBuf.push(make_pair(t, linefeatureFrame));
         mBuf.unlock();
         TicToc processTime;
         processMeasurements();
@@ -279,10 +289,13 @@ void Estimator::processMeasurements()
     {
         //printf("process measurments\n");
         pair<double, map<int, vector<pair<int, Eigen::Matrix<double, 7, 1> > > > > feature;
+        pair<double, map<int, vector<pair<int, Eigen::Matrix<double, 10, 1> > > > > linefeature;
         vector<pair<double, Eigen::Vector3d>> accVector, gyrVector;
         if(!featureBuf.empty())
         {
             feature = featureBuf.front();
+            linefeature = linefeatureBuf.front();
+
             curTime = feature.first + td;
             while(1)
             {
@@ -302,6 +315,7 @@ void Estimator::processMeasurements()
                 getIMUInterval(prevTime, curTime, accVector, gyrVector);
 
             featureBuf.pop();
+            linefeatureBuf.pop();
             mBuf.unlock();
 
             if(USE_IMU)
@@ -321,7 +335,7 @@ void Estimator::processMeasurements()
                 }
             }
             mProcess.lock();
-            processImage(feature.second, feature.first);
+            processImage(feature.second, linefeature.second, feature.first);
             prevTime = curTime;
 
             printStatistics(*this, 0);
@@ -334,6 +348,7 @@ void Estimator::processMeasurements()
             pubKeyPoses(*this, header);
             pubCameraPose(*this, header);
             pubPointCloud(*this, header);
+            pubLineCloud(*this, header);
             pubKeyframe(*this);
             pubTF(*this, header);
             mProcess.unlock();
@@ -414,18 +429,20 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
     gyr_0 = angular_velocity; 
 }
 
-void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const double header)
+void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, 
+                                const map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> &line_image, const double header)
 {
     ROS_DEBUG("new image coming ------------------------------------------");
     ROS_DEBUG("Adding feature points %lu", image.size());
-    if (f_manager.addFeatureCheckParallax(frame_count, image, td))
+    // 시차가 크면 이전 키프레임을 marg합니다. 감지된 feature 저장
+    if (f_manager.addFeatureCheckParallax(frame_count, image, line_image, td))
     {
-        marginalization_flag = MARGIN_OLD;
+        marginalization_flag = MARGIN_OLD;  // New Keyframe
         //printf("keyframe\n");
     }
     else
     {
-        marginalization_flag = MARGIN_SECOND_NEW;
+        marginalization_flag = MARGIN_SECOND_NEW;   // 이전 frame이 KeyFrame이 아니었으니 margin out하고 현재 frame과 함께 opt.
         //printf("non-keyframe\n");
     }
 
@@ -434,12 +451,12 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());
     Headers[frame_count] = header;
 
-    ImageFrame imageframe(image, header);
+    ImageFrame imageframe(image, header);   // initialStructure, VisualInertialAlignment 과정에 사용됨. ImageFrame: 한 이미지에 대응되는 feature들, Pose, time, IntegrationBase
     imageframe.pre_integration = tmp_pre_integration;
     all_image_frame.insert(make_pair(header, imageframe));
     tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
 
-    if(ESTIMATE_EXTRINSIC == 2)
+    if(ESTIMATE_EXTRINSIC == 2) // Try to find extrinsic params.
     {
         ROS_INFO("calibrating extrinsic param, rotation movement is needed");
         if (frame_count != 0)
@@ -459,7 +476,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 
     if (solver_flag == INITIAL)
     {
-        // monocular + IMU initilization
+        // init: monocular + IMU initilization
         if (!STEREO && USE_IMU)
         {
             if (frame_count == WINDOW_SIZE)
@@ -483,7 +500,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             }
         }
 
-        // stereo + IMU initilization
+        // init: stereo + IMU initilization
         if(STEREO && USE_IMU)
         {
             f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
@@ -511,11 +528,12 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             }
         }
 
-        // stereo only initilization
+        // init: stereo only initilization (KITTI)
         if(STEREO && !USE_IMU)
         {
             f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
             f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
+            // f_manager.triangulateLines(frame_count, Ps, Rs, tic, ric);
             optimization();
 
             if(frame_count == WINDOW_SIZE)
@@ -542,18 +560,21 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     }
     else
     {
+        // frame_count (= WINDOW_SIZE, here), (Ps, Rs = w_T_body), (tic, ric = body_T_cam : imu-camera extrinsic)
         TicToc t_solve;
-        if(!USE_IMU)
+        if(!USE_IMU)    // IMU 안쓸 때는 PnP로 increamental하게...; IMU쓰면 preintegration으로?
             f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
         f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
+        f_manager.triangulateLines(frame_count, Ps, Rs, tic, ric);
+        
         optimization();
         set<int> removeIndex;
-        outliersRejection(removeIndex);
-        f_manager.removeOutlier(removeIndex);
+        outliersRejection(removeIndex); // reprojection error가 큰 feature 지우기
+        f_manager.removeOutlier(removeIndex);   // 실제로 feature 지우는 코드
         if (! MULTIPLE_THREAD)
         {
-            featureTracker.removeOutliers(removeIndex);
-            predictPtsInNextFrame();
+            featureTracker.removeOutliers(removeIndex);     // tracker에 해당 id는 tracking할 필요 없다고 알림
+            predictPtsInNextFrame();                        // reprojection을 통해서 tracking이 잘 되었다면 여기일거야 predict points
         }
             
         ROS_DEBUG("solver costs: %fms", t_solve.toc());
@@ -810,7 +831,7 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
 
             }
             average_parallax = 1.0 * sum_parallax / int(corres.size());
-            if(average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))
+            if(average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))  // 5점 방법을 사용하여 카메라의 초기 포즈를 해결합니다
             {
                 l = i;
                 ROS_DEBUG("average_parallax %f choose l %d and newest frame to triangulate the whole structure", average_parallax * 460, l);
@@ -1010,7 +1031,7 @@ bool Estimator::failureDetection()
 void Estimator::optimization()
 {
     TicToc t_whole, t_prepare;
-    vector2double();
+    vector2double();    // optimization할 parameter를 param_* 변수에 저장
 
     ceres::Problem problem;
     ceres::LossFunction *loss_function;
@@ -1335,96 +1356,100 @@ void Estimator::optimization()
 void Estimator::slideWindow()
 {
     TicToc t_margin;
-    if (marginalization_flag == MARGIN_OLD)
+    if (marginalization_flag == MARGIN_OLD) // 목적: index가 0인 가장 오래된 값을 지우며 slide를 움직인다.
     {
-        double t_0 = Headers[0];
-        back_R0 = Rs[0];
+        if (frame_count < WINDOW_SIZE){ // slide는 꽉차야 움직인다.
+            return;
+        }
+
+        double t_0 = Headers[0];    // 제일 예전 header
+        back_R0 = Rs[0];            // w_R_i, slideWindowOld()에서 사용됨.
         back_P0 = Ps[0];
-        if (frame_count == WINDOW_SIZE)
+        for (int i = 0; i < WINDOW_SIZE; i++)
         {
-            for (int i = 0; i < WINDOW_SIZE; i++)
-            {
-                Headers[i] = Headers[i + 1];
-                Rs[i].swap(Rs[i + 1]);
-                Ps[i].swap(Ps[i + 1]);
-                if(USE_IMU)
-                {
-                    std::swap(pre_integrations[i], pre_integrations[i + 1]);
-
-                    dt_buf[i].swap(dt_buf[i + 1]);
-                    linear_acceleration_buf[i].swap(linear_acceleration_buf[i + 1]);
-                    angular_velocity_buf[i].swap(angular_velocity_buf[i + 1]);
-
-                    Vs[i].swap(Vs[i + 1]);
-                    Bas[i].swap(Bas[i + 1]);
-                    Bgs[i].swap(Bgs[i + 1]);
-                }
-            }
-            Headers[WINDOW_SIZE] = Headers[WINDOW_SIZE - 1];
-            Ps[WINDOW_SIZE] = Ps[WINDOW_SIZE - 1];
-            Rs[WINDOW_SIZE] = Rs[WINDOW_SIZE - 1];
-
+            Headers[i] = Headers[i + 1];    // Headers[0]을 지우며 한칸씩 밀기!
+            Rs[i].swap(Rs[i + 1]);
+            Ps[i].swap(Ps[i + 1]);
             if(USE_IMU)
             {
-                Vs[WINDOW_SIZE] = Vs[WINDOW_SIZE - 1];
-                Bas[WINDOW_SIZE] = Bas[WINDOW_SIZE - 1];
-                Bgs[WINDOW_SIZE] = Bgs[WINDOW_SIZE - 1];
+                std::swap(pre_integrations[i], pre_integrations[i + 1]);
 
-                delete pre_integrations[WINDOW_SIZE];
-                pre_integrations[WINDOW_SIZE] = new IntegrationBase{acc_0, gyr_0, Bas[WINDOW_SIZE], Bgs[WINDOW_SIZE]};
+                dt_buf[i].swap(dt_buf[i + 1]);
+                linear_acceleration_buf[i].swap(linear_acceleration_buf[i + 1]);
+                angular_velocity_buf[i].swap(angular_velocity_buf[i + 1]);
 
-                dt_buf[WINDOW_SIZE].clear();
-                linear_acceleration_buf[WINDOW_SIZE].clear();
-                angular_velocity_buf[WINDOW_SIZE].clear();
+                Vs[i].swap(Vs[i + 1]);
+                Bas[i].swap(Bas[i + 1]);
+                Bgs[i].swap(Bgs[i + 1]);
             }
-
-            if (true || solver_flag == INITIAL)
-            {
-                map<double, ImageFrame>::iterator it_0;
-                it_0 = all_image_frame.find(t_0);
-                delete it_0->second.pre_integration;
-                all_image_frame.erase(all_image_frame.begin(), it_0);
-            }
-            slideWindowOld();
         }
+        Headers[WINDOW_SIZE] = Headers[WINDOW_SIZE - 1];
+        Ps[WINDOW_SIZE] = Ps[WINDOW_SIZE - 1];
+        Rs[WINDOW_SIZE] = Rs[WINDOW_SIZE - 1];
+
+        if(USE_IMU)
+        {
+            Vs[WINDOW_SIZE] = Vs[WINDOW_SIZE - 1];
+            Bas[WINDOW_SIZE] = Bas[WINDOW_SIZE - 1];
+            Bgs[WINDOW_SIZE] = Bgs[WINDOW_SIZE - 1];
+
+            delete pre_integrations[WINDOW_SIZE];
+            pre_integrations[WINDOW_SIZE] = new IntegrationBase{acc_0, gyr_0, Bas[WINDOW_SIZE], Bgs[WINDOW_SIZE]};
+
+            dt_buf[WINDOW_SIZE].clear();
+            linear_acceleration_buf[WINDOW_SIZE].clear();
+            angular_velocity_buf[WINDOW_SIZE].clear();
+        }
+
+        if (true || solver_flag == INITIAL)
+        {
+            map<double, ImageFrame>::iterator it_0;
+            it_0 = all_image_frame.find(t_0);
+            delete it_0->second.pre_integration;
+            all_image_frame.erase(all_image_frame.begin(), it_0);
+        }
+        slideWindowOld();
+        
     }
-    else
+    else if (marginalization_flag == MARGIN_SECOND_NEW)
     {
-        if (frame_count == WINDOW_SIZE)
-        {
-            Headers[frame_count - 1] = Headers[frame_count];
-            Ps[frame_count - 1] = Ps[frame_count];
-            Rs[frame_count - 1] = Rs[frame_count];
-
-            if(USE_IMU)
-            {
-                for (unsigned int i = 0; i < dt_buf[frame_count].size(); i++)
-                {
-                    double tmp_dt = dt_buf[frame_count][i];
-                    Vector3d tmp_linear_acceleration = linear_acceleration_buf[frame_count][i];
-                    Vector3d tmp_angular_velocity = angular_velocity_buf[frame_count][i];
-
-                    pre_integrations[frame_count - 1]->push_back(tmp_dt, tmp_linear_acceleration, tmp_angular_velocity);
-
-                    dt_buf[frame_count - 1].push_back(tmp_dt);
-                    linear_acceleration_buf[frame_count - 1].push_back(tmp_linear_acceleration);
-                    angular_velocity_buf[frame_count - 1].push_back(tmp_angular_velocity);
-                }
-
-                Vs[frame_count - 1] = Vs[frame_count];
-                Bas[frame_count - 1] = Bas[frame_count];
-                Bgs[frame_count - 1] = Bgs[frame_count];
-
-                delete pre_integrations[WINDOW_SIZE];
-                pre_integrations[WINDOW_SIZE] = new IntegrationBase{acc_0, gyr_0, Bas[WINDOW_SIZE], Bgs[WINDOW_SIZE]};
-
-                dt_buf[WINDOW_SIZE].clear();
-                linear_acceleration_buf[WINDOW_SIZE].clear();
-                angular_velocity_buf[WINDOW_SIZE].clear();
-            }
-            slideWindowNew();
+        if (frame_count < WINDOW_SIZE){
+            return;
         }
+
+        Headers[frame_count - 1] = Headers[frame_count];
+        Ps[frame_count - 1] = Ps[frame_count];
+        Rs[frame_count - 1] = Rs[frame_count];
+
+        if(USE_IMU)
+        {
+            for (unsigned int i = 0; i < dt_buf[frame_count].size(); i++)
+            {
+                double tmp_dt = dt_buf[frame_count][i];
+                Vector3d tmp_linear_acceleration = linear_acceleration_buf[frame_count][i];
+                Vector3d tmp_angular_velocity = angular_velocity_buf[frame_count][i];
+
+                pre_integrations[frame_count - 1]->push_back(tmp_dt, tmp_linear_acceleration, tmp_angular_velocity);
+
+                dt_buf[frame_count - 1].push_back(tmp_dt);
+                linear_acceleration_buf[frame_count - 1].push_back(tmp_linear_acceleration);
+                angular_velocity_buf[frame_count - 1].push_back(tmp_angular_velocity);
+            }
+
+            Vs[frame_count - 1] = Vs[frame_count];
+            Bas[frame_count - 1] = Bas[frame_count];
+            Bgs[frame_count - 1] = Bgs[frame_count];
+
+            delete pre_integrations[WINDOW_SIZE];
+            pre_integrations[WINDOW_SIZE] = new IntegrationBase{acc_0, gyr_0, Bas[WINDOW_SIZE], Bgs[WINDOW_SIZE]};
+
+            dt_buf[WINDOW_SIZE].clear();
+            linear_acceleration_buf[WINDOW_SIZE].clear();
+            angular_velocity_buf[WINDOW_SIZE].clear();
+        }
+        slideWindowNew();
     }
+    else {}
 }
 
 void Estimator::slideWindowNew()
@@ -1442,8 +1467,8 @@ void Estimator::slideWindowOld()
     {
         Matrix3d R0, R1;
         Vector3d P0, P1;
-        R0 = back_R0 * ric[0];
-        R1 = Rs[0] * ric[0];
+        R0 = back_R0 * ric[0];  // w_R_c = w_R_i @ i_R_c
+        R1 = Rs[0] * ric[0];    // 이 때 Rs[0]는 새로 옮겨진 w_R_i
         P0 = back_P0 + back_R0 * tic[0];
         P1 = Ps[0] + Rs[0] * tic[0];
         f_manager.removeBackShiftDepth(R0, P0, R1, P1);
@@ -1516,6 +1541,9 @@ double Estimator::reprojectionError(Matrix3d &Ri, Vector3d &Pi, Matrix3d &rici, 
 
 void Estimator::outliersRejection(set<int> &removeIndex)
 {
+    /**
+     * 추정된 pose 기준으로 reprojection error가 큰 feature_id는 제거한다. (= removeIndex라는 set에 feature_id 추가; 기준: ave_err * FOCAL_LENGTH > 3)
+    */
     //return;
     int feature_index = -1;
     for (auto &it_per_id : f_manager.feature)

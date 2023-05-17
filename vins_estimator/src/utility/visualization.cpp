@@ -14,6 +14,7 @@ using namespace Eigen;
 ros::Publisher pub_odometry, pub_latest_odometry;
 ros::Publisher pub_path;
 ros::Publisher pub_point_cloud, pub_margin_cloud;
+ros::Publisher pub_lines, pub_margin_lines;
 ros::Publisher pub_key_poses;
 ros::Publisher pub_camera_pose;
 ros::Publisher pub_camera_pose_visual;
@@ -24,6 +25,7 @@ ros::Publisher pub_keyframe_point;
 ros::Publisher pub_extrinsic;
 
 ros::Publisher pub_image_track;
+ros::Publisher pub_lineimage_track;
 
 CameraPoseVisualization cameraposevisual(1, 0, 0, 1);
 static double sum_of_path = 0;
@@ -38,6 +40,8 @@ void registerPub(ros::NodeHandle &n)
     pub_odometry = n.advertise<nav_msgs::Odometry>("odometry", 1000);
     pub_point_cloud = n.advertise<sensor_msgs::PointCloud>("point_cloud", 1000);
     pub_margin_cloud = n.advertise<sensor_msgs::PointCloud>("margin_cloud", 1000);
+    pub_lines = n.advertise<visualization_msgs::Marker>("lines_cloud", 1000);
+    pub_margin_lines = n.advertise<visualization_msgs::Marker>("margin_cloud_lines", 1000);
     pub_key_poses = n.advertise<visualization_msgs::Marker>("key_poses", 1000);
     pub_camera_pose = n.advertise<nav_msgs::Odometry>("camera_pose", 1000);
     pub_camera_pose_visual = n.advertise<visualization_msgs::MarkerArray>("camera_pose_visual", 1000);
@@ -45,6 +49,7 @@ void registerPub(ros::NodeHandle &n)
     pub_keyframe_point = n.advertise<sensor_msgs::PointCloud>("keyframe_point", 1000);
     pub_extrinsic = n.advertise<nav_msgs::Odometry>("extrinsic", 1000);
     pub_image_track = n.advertise<sensor_msgs::Image>("image_track", 1000);
+    pub_lineimage_track = n.advertise<sensor_msgs::Image>("lineimage_track", 1000);
 
     cameraposevisual.setScale(0.1);
     cameraposevisual.setLineWidth(0.01);
@@ -68,13 +73,19 @@ void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, co
     pub_latest_odometry.publish(odometry);
 }
 
-void pubTrackImage(const cv::Mat &imgTrack, const double t)
+void pubTrackImage(const cv::Mat &imgTrack, const double t, string feat_type)
 {
     std_msgs::Header header;
     header.frame_id = "world";
     header.stamp = ros::Time(t);
     sensor_msgs::ImagePtr imgTrackMsg = cv_bridge::CvImage(header, "bgr8", imgTrack).toImageMsg();
-    pub_image_track.publish(imgTrackMsg);
+
+    if (feat_type=="point") {
+        pub_image_track.publish(imgTrackMsg);
+    }
+    else if (feat_type=="line") {
+        pub_lineimage_track.publish(imgTrackMsg);
+    }
 }
 
 
@@ -244,7 +255,6 @@ void pubCameraPose(const Estimator &estimator, const std_msgs::Header &header)
     }
 }
 
-
 void pubPointCloud(const Estimator &estimator, const std_msgs::Header &header)
 {
     sensor_msgs::PointCloud point_cloud, loop_point_cloud;
@@ -301,6 +311,51 @@ void pubPointCloud(const Estimator &estimator, const std_msgs::Header &header)
         }
     }
     pub_margin_cloud.publish(margin_cloud);
+}
+
+visualization_msgs::Marker marg_lines_cloud;  // 전역 변수는 모든 라인 세그먼트를 저장하는 데 사용됩니다.
+std::list<visualization_msgs::Marker> marg_lines_cloud_last10frame;
+void pubLineCloud(const Estimator &estimator, const std_msgs::Header &header)
+{
+    visualization_msgs::Marker lines;
+    lines.header = header;
+    lines.header.frame_id = "world";
+    lines.ns = "lines";
+    lines.type = visualization_msgs::Marker::LINE_LIST;
+    lines.action = visualization_msgs::Marker::ADD;
+    lines.pose.orientation.w = 1.0;
+    // lines.lifetime = ros::Duration();
+
+    lines.id = 0; //key_poses_id++;
+    lines.scale.x = 0.3;
+    lines.scale.y = 0.3;
+    lines.scale.z = 0.3;
+    lines.color.r = 1.0;
+    lines.color.a = 1.0;
+
+    for (auto &it_per_id : estimator.f_manager.linefeature)
+    {
+        if (it_per_id.is_triangulation) {
+            // std::cout << "line: " << w_pts_1.transpose() << " " << w_pts_2.transpose() << std::endl<< std::endl;
+            int imu_i = it_per_id.start_frame;
+            Vector3d pts_1 = it_per_id.start;
+            Vector3d pts_2 = it_per_id.end;
+            Vector3d w_pts_1 = estimator.Rs[imu_i] * (estimator.ric[0] * pts_1 + estimator.tic[0]) + estimator.Ps[imu_i];
+            Vector3d w_pts_2 = estimator.Rs[imu_i] * (estimator.ric[0] * pts_2 + estimator.tic[0]) + estimator.Ps[imu_i];
+            
+            geometry_msgs::Point p;
+            p.x = w_pts_1(0);
+            p.y = w_pts_1(1);
+            p.z = w_pts_1(2);
+            lines.points.push_back(p);
+            p.x = w_pts_2(0);
+            p.y = w_pts_2(1);
+            p.z = w_pts_2(2);
+            lines.points.push_back(p);
+        }
+    }
+
+    pub_lines.publish(lines);
 }
 
 

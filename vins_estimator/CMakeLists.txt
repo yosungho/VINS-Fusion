@@ -51,6 +51,7 @@ add_library(vins_lib
     src/initial/initial_sfm.cpp
     src/initial/initial_ex_rotation.cpp
     src/featureTracker/feature_tracker.cpp
+    src/utility/line_geometry.cpp
     src/base/linebase.cpp                                     # line representation
     src/featureTracker/linedet/lsd.cpp                        # lsd
     src/featureTracker/linedet/EDLineDetector.cpp             # edline

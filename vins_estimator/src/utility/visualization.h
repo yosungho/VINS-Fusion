@@ -43,7 +43,7 @@ void registerPub(ros::NodeHandle &n);
 
 void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, const Eigen::Vector3d &V, double t);
 
-void pubTrackImage(const cv::Mat &imgTrack, const double t);
+void pubTrackImage(const cv::Mat &imgTrack, const double t, string feat_type);
 
 void printStatistics(const Estimator &estimator, double t);
 
@@ -56,6 +56,8 @@ void pubKeyPoses(const Estimator &estimator, const std_msgs::Header &header);
 void pubCameraPose(const Estimator &estimator, const std_msgs::Header &header);
 
 void pubPointCloud(const Estimator &estimator, const std_msgs::Header &header);
+
+void pubLineCloud(const Estimator &estimator, const std_msgs::Header &header);
 
 void pubTF(const Estimator &estimator, const std_msgs::Header &header);
 

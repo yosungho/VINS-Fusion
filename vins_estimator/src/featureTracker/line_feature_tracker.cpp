@@ -10,6 +10,14 @@
  *******************************************************/
 
 #include "line_feature_tracker.h"
+#include <ctime>
+
+cv::Scalar idToColor(int id) {
+    int b = (id * 23) % 256; // Blue: 0-255
+    int g = (id * 123) % 256; // Green: 0-255
+    int r = (id * 231) % 256; // Red: 0-255
+    return cv::Scalar(b, g, r);
+}
 
 void reduceVector(vector<KeyLine> &v, vector<uchar> status)
 {
@@ -141,7 +149,8 @@ map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> LineFeatureTracker::tr
     }
 
     if(SHOW_TRACK){
-        visualizeLineMatches(prev_frame_->img, cur_img, prev_lines, cur_lines, match_results);
+        drawTrack(prev_frame_->img, cur_img, prev_lines, cur_lines, match_results);
+        // visualizeLineMatches(prev_frame_->img, cur_img, prev_lines, cur_lines, match_results);
     }
     
     // {
@@ -163,8 +172,8 @@ map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> LineFeatureTracker::tr
         int feature_id = cur_lines[i][0].class_id;
         int camera_id = 0;
         Eigen::Matrix<double, 10, 1> xyz_uv;
-        double x_st = un_cur_lines[i].first.x; double y_st = un_cur_lines[i].first.x; double z_st = un_cur_lines[i].first.x;
-        double x_ed = un_cur_lines[i].second.x; double y_ed = un_cur_lines[i].second.x; double z_ed = un_cur_lines[i].second.x;
+        double x_st = un_cur_lines[i].first.x; double y_st = un_cur_lines[i].first.y; double z_st = 1;
+        double x_ed = un_cur_lines[i].second.x; double y_ed = un_cur_lines[i].second.y; double z_ed = 1;
         double u_st = cur_lines[i][0].startPointX; double v_st = cur_lines[i][0].startPointY;
         double u_ed = cur_lines[i][0].endPointX; double v_ed = cur_lines[i][0].endPointY;
 
@@ -370,4 +379,141 @@ void LineFeatureTracker::visualizeLineMatches(const cv::Mat &cvLeftImage, const 
   std::cout << "number of total matches = " << goodMatches.size() << std::endl;
   cv::imshow("LBDSG", cvResultColorImage);
   cv::waitKey();
+}
+
+void LineFeatureTracker::drawTrack(const cv::Mat &cvLeftImage, const cv::Mat &cvRightImage,
+                  const std::vector<std::vector<KeyLine>> &linesInLeft, const std::vector<std::vector<KeyLine>> &linesInRight,
+                  const std::vector<std::pair<uint32_t, uint32_t>> &goodMatches) {
+    cv::Point startPoint;
+    cv::Point endPoint;
+
+    cv::Mat cvLeftColorImage, cvRightColorImage;
+    cv::cvtColor(cvLeftImage, cvLeftColorImage, cv::COLOR_GRAY2BGR);
+    cv::cvtColor(cvRightImage, cvRightColorImage, cv::COLOR_GRAY2BGR);
+
+    int w = cvLeftImage.cols, h = cvLeftImage.rows;
+    int lowest = 100, highest = 255;
+    int range = (highest - lowest) + 1;
+    unsigned int r, g, b; //the color of lines
+    // for (auto &lines_vec : linesInLeft) {
+    //     startPoint = cv::Point(int(lines_vec[0].startPointX), int(lines_vec[0].startPointY));
+    //     endPoint = cv::Point(int(lines_vec[0].endPointX), int(lines_vec[0].endPointY));
+    //     // r = lowest + int(rand() % range);
+    //     // g = lowest + int(rand() % range);
+    //     // b = lowest + int(rand() % range);
+    //     // cv::line(cvLeftColorImage, startPoint, endPoint, CV_RGB(r, g, b));
+    //     cv::line(cvLeftColorImage, startPoint, endPoint, idToColor(lines_vec[0].class_id));
+
+    //     std::string lineId = std::to_string(lines_vec[0].class_id);
+    //     cv::putText(cvLeftColorImage, lineId, (startPoint+endPoint)/2, cv::FONT_HERSHEY_DUPLEX,0.5,cv::Scalar(0,255,0),1,false);
+    // }
+    // // cv::imshow("Left", cvLeftColorImage);
+
+    // for (auto &lines_vec : linesInRight) {
+    //     startPoint = cv::Point(int(lines_vec[0].startPointX), int(lines_vec[0].startPointY));
+    //     endPoint = cv::Point(int(lines_vec[0].endPointX), int(lines_vec[0].endPointY));
+    //     // r = lowest + int(rand() % range);
+    //     // g = lowest + int(rand() % range);
+    //     // b = lowest + int(rand() % range);        
+    //     // cv::line(cvRightColorImage, startPoint, endPoint, CV_RGB(r, g, b));
+    //     cv::line(cvRightColorImage, startPoint, endPoint, idToColor(lines_vec[0].class_id));
+        
+    //     std::string lineId = std::to_string(lines_vec[0].class_id);
+    //     cv::putText(cvRightColorImage, lineId, (startPoint+endPoint)/2, cv::FONT_HERSHEY_DUPLEX,0.5,cv::Scalar(0,255,0),1,false);
+    // }
+    // // cv::imshow("Right", cvRightColorImage);
+
+    ///////////####################################################################
+
+    //store the matching results of the first and second images into a single image
+    int lineIDLeft, lineIDRight;
+    cv::cvtColor(cvLeftImage, cvLeftColorImage, cv::COLOR_GRAY2RGB);
+    cv::cvtColor(cvRightImage, cvRightColorImage, cv::COLOR_GRAY2RGB);
+    int lowest1 = 0, highest1 = 255;
+    int range1 = (highest1 - lowest1) + 1;
+    std::vector<unsigned int> r1(goodMatches.size()), g1(goodMatches.size()),
+        b1(goodMatches.size()); //the color of lines
+    for (unsigned int pair = 0; pair < goodMatches.size(); pair++) {
+        r1[pair] = lowest1 + int(rand() % range1);
+        g1[pair] = lowest1 + int(rand() % range1);
+        b1[pair] = 255 - r1[pair];
+        lineIDLeft = goodMatches[pair].first;
+        lineIDRight = goodMatches[pair].second;
+        startPoint.x = linesInLeft[lineIDLeft][0].startPointX;
+        startPoint.y = linesInLeft[lineIDLeft][0].startPointY;
+        endPoint.x = linesInLeft[lineIDLeft][0].endPointX;
+        endPoint.y = linesInLeft[lineIDLeft][0].endPointY;
+        // cv::line(cvLeftColorImage,
+        //         startPoint,
+        //         endPoint,
+        //         CV_RGB(r1[pair], g1[pair], b1[pair]),
+        //         4,
+        //         cv::LINE_AA);
+        cv::line(cvLeftColorImage,
+            startPoint,
+            endPoint,
+            idToColor(linesInLeft[lineIDLeft][0].class_id),
+            4,
+            cv::LINE_AA);
+        // std::string lineIdLeft = std::to_string(linesInLeft[lineIDLeft][0].class_id);
+        // cv::putText(cvLeftColorImage, lineIdLeft, (startPoint+endPoint)/2, cv::FONT_HERSHEY_DUPLEX,0.5,cv::Scalar(0,255,0),1,false);
+
+        startPoint.x = linesInRight[lineIDRight][0].startPointX;
+        startPoint.y = linesInRight[lineIDRight][0].startPointY;
+        endPoint.x = linesInRight[lineIDRight][0].endPointX;
+        endPoint.y = linesInRight[lineIDRight][0].endPointY;
+        // cv::line(cvRightColorImage,
+        //         startPoint,
+        //         endPoint,
+        //         CV_RGB(r1[pair], g1[pair], b1[pair]),
+        //         4,
+        //         cv::LINE_AA);
+        cv::line(cvRightColorImage,
+            startPoint,
+            endPoint,
+            idToColor(linesInRight[lineIDRight][0].class_id),
+            4,
+            cv::LINE_AA);
+        // std::string lineIdRight = std::to_string(linesInRight[lineIDRight][0].class_id);
+        // cv::putText(cvRightColorImage, lineIdRight, (startPoint+endPoint)/2, cv::FONT_HERSHEY_DUPLEX,0.5,cv::Scalar(0,255,0),1,false);
+    }
+
+    cv::Mat cvResultColorImage1(h, w * 2, CV_8UC3);
+    // cv::Mat cvResultColorImage2, cvResultColorImage;
+
+    cv::Mat out1 = cvResultColorImage1(cv::Rect(0, 0, w, h));
+    cvLeftColorImage.copyTo(out1);
+    cv::Mat out2 = cvResultColorImage1(cv::Rect(w, 0, w, h));
+    cvRightColorImage.copyTo(out2);
+
+    // cvResultColorImage2 = cvResultColorImage1.clone();
+    // for (unsigned int pair = 0; pair < goodMatches.size(); pair++) {
+    //     lineIDLeft = goodMatches[pair].first;
+    //     lineIDRight = goodMatches[pair].second;
+    //     startPoint.x = linesInLeft[lineIDLeft][0].startPointX;
+    //     startPoint.y = linesInLeft[lineIDLeft][0].startPointY;
+    //     endPoint.x = linesInRight[lineIDRight][0].startPointX + w;
+    //     endPoint.y = linesInRight[lineIDRight][0].startPointY;
+    //     // cv::line(cvResultColorImage2,
+    //     //         startPoint,
+    //     //         endPoint,
+    //     //         CV_RGB(r1[pair], g1[pair], b1[pair]),
+    //     //         2,
+    //     //         cv::LINE_AA);
+    //     cv::line(cvResultColorImage2,
+    //         startPoint,
+    //         endPoint,
+    //         idToColor(linesInLeft[lineIDLeft][0].class_id),
+    //         2,
+    //         cv::LINE_AA);
+    // }
+    // cv::addWeighted(cvResultColorImage1, 0.5, cvResultColorImage2, 0.5, 0.0, cvResultColorImage);
+
+    image_track_ = cvResultColorImage1;
+    // std::cout << "number of total matches = " << goodMatches.size() << std::endl;
+    // cv::imshow("LBDSG", cvResultColorImage);
+    // cv::waitKey();
+}
+cv::Mat LineFeatureTracker::getTrackImage() {
+    return image_track_;
 }

@@ -51,15 +51,15 @@ class Estimator
     void inputFeature(double t, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame);
     void inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1 = cv::Mat());
     void processIMU(double t, double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
-    void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const double header);
+    void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> &line_image, const double header);
     void processMeasurements();
     void changeSensorType(int use_imu, int use_stereo);
 
     // internal
     void clearState();
-    bool initialStructure();
+    bool initialStructure();        //
     bool visualInitialAlign();
-    bool relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l);
+    bool relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l);  // 슬라이딩 윈도우의 두 프레임에서 특징점과 시차가 충분한 프레임 l을 선택하고 5점 방법을 사용하여 상대 회전 및 변환을 복원합니다.
     void slideWindow();
     void slideWindowNew();
     void slideWindowOld();
@@ -98,7 +98,9 @@ class Estimator
     std::mutex mPropagate;
     queue<pair<double, Eigen::Vector3d>> accBuf;
     queue<pair<double, Eigen::Vector3d>> gyrBuf;
+    // pair<t, map<feature_id, vector<pair<camera_id, feature>>>>: feature id별로 feature 묶여있음.
     queue<pair<double, map<int, vector<pair<int, Eigen::Matrix<double, 7, 1> > > > > > featureBuf;
+    queue<pair<double, map<int, vector<pair<int, Eigen::Matrix<double, 10, 1> > > > > > linefeatureBuf;
     double prevTime, curTime;
     bool openExEstimation;
 
@@ -124,7 +126,7 @@ class Estimator
 
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
-    double Headers[(WINDOW_SIZE + 1)];
+    double Headers[(WINDOW_SIZE + 1)];  // 이미지가 찍힌 stamp
 
     IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];
     Vector3d acc_0, gyr_0;
@@ -133,7 +135,7 @@ class Estimator
     vector<Vector3d> linear_acceleration_buf[(WINDOW_SIZE + 1)];
     vector<Vector3d> angular_velocity_buf[(WINDOW_SIZE + 1)];
 
-    int frame_count;
+    int frame_count;    // 0 -> 1 -> 2 -> ... -> 10 -> 10 -> 10 -> 10 -> 10 -> 10
     int sum_of_outlier, sum_of_back, sum_of_front, sum_of_invalid;
     int inputImageCnt;
 
