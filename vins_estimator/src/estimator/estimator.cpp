@@ -1031,14 +1031,20 @@ bool Estimator::failureDetection()
 void Estimator::optimization()
 {
     TicToc t_whole, t_prepare;
-    vector2double();    // optimization할 parameter를 param_* 변수에 저장
+    // 1. optimization할 parameter를 모아서 para_* 변수에 저장
+    vector2double();    
 
-    ceres::Problem problem;
+    ceres::Problem problem;     // Problem holds the robustified bounds constrained non-linear least squares problem.
     ceres::LossFunction *loss_function;
     //loss_function = NULL;
     loss_function = new ceres::HuberLoss(1.0);
     //loss_function = new ceres::CauchyLoss(1.0 / FOCAL_LENGTH);
     //ceres::LossFunction* loss_function = new ceres::HuberLoss(1.0);
+
+    // 2. optimiztion할 parameters를 problem에 넣기
+    // window를 하나씩 돌면서 pose(7개 param) and/or imu(speed, bias 9개) param_block를 problem에 넣기.
+    // 이 때 pose는 manifold이므로 local_parameterization를 추가로 설정한다.
+    // imu가 없다면 para_Pose[0]를 고정한다. (왜??? para_SpeedBias를 고정해야하는건 아님??, 무엇???)
     for (int i = 0; i < frame_count + 1; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
@@ -1047,8 +1053,12 @@ void Estimator::optimization()
             problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);
     }
     if(!USE_IMU)
-        problem.SetParameterBlockConstant(para_Pose[0]);
+    {
+        problem.SetParameterBlockConstant(para_Pose[0]);    // Hold the indicated parameter block constant during optimization.
+    }
 
+    // 3. extrinsic_param도 함께 추정할 수 있다. 
+    // extrinsic도 manifold위에 있으므로 local_parameterization를 추가한다.
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
@@ -1064,11 +1074,13 @@ void Estimator::optimization()
             problem.SetParameterBlockConstant(para_Ex_Pose[i]);
         }
     }
-    problem.AddParameterBlock(para_Td[0], 1);
 
+    // 4. para_Td는 time_offset. ESTIMATE_TD추정을 끄던가, 속도가 작다면 td는 최적화 안함.
+    problem.AddParameterBlock(para_Td[0], 1);
     if (!ESTIMATE_TD || Vs[0].norm() < 0.2)
         problem.SetParameterBlockConstant(para_Td[0]);
 
+    // 5. MarginalizationFactor
     if (last_marginalization_info && last_marginalization_info->valid)
     {
         // construct new marginlization_factor
@@ -1076,40 +1088,45 @@ void Estimator::optimization()
         problem.AddResidualBlock(marginalization_factor, NULL,
                                  last_marginalization_parameter_blocks);
     }
+
+    // 6. IMU factor
     if(USE_IMU)
     {
         for (int i = 0; i < frame_count; i++)
         {
             int j = i + 1;
-            if (pre_integrations[j]->sum_dt > 10.0)
+            if (pre_integrations[j]->sum_dt > 10.0)  // 때때로 여전히 상황이 있기 때문에 현재 시차가 충분하지 않고 키 프레임이 선택되지 않았으며 사전 통합 양이 누적되었으며 시간이 10초를 초과할 수 있습니다.
                 continue;
-            IMUFactor* imu_factor = new IMUFactor(pre_integrations[j]);
+            IMUFactor* imu_factor = new IMUFactor(pre_integrations[j]);     // Pre-integration 오차 항: 오차, Jacobian의 계산
             problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
         }
     }
 
+    // 7. Reprojection errors : ProjectionTwoFrameOneCamFactor; ProjectionTwoFrameTwoCamFactor; ProjectionOneFrameTwoCamFactor
+    // 모든 features
     int f_m_cnt = 0;
     int feature_index = -1;
     for (auto &it_per_id : f_manager.feature)
     {
-        it_per_id.used_num = it_per_id.feature_per_frame.size();
+        it_per_id.used_num = it_per_id.feature_per_frame.size();    // 얼마나 많은 프레임이 관찰되었는지, 이것은 삼각 측량 기능에서 언급되었습니다.
         if (it_per_id.used_num < 4)
             continue;
  
-        ++feature_index;
+        ++feature_index;                                            // 이 변수는 para_Feature에 피처의 위치를 ​​기록하게 되며, para_Feature에 깊이를 저장할 때의 인덱스 레코드도 이와 같이 사용됩니다.
 
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
         
-        Vector3d pts_i = it_per_id.feature_per_frame[0].point;
+        Vector3d pts_i = it_per_id.feature_per_frame[0].point;      // 이 기능이 이미지에서 처음 관찰된 좌표
 
         for (auto &it_per_frame : it_per_id.feature_per_frame)
         {
             imu_j++;
             if (imu_i != imu_j)
             {
-                Vector3d pts_j = it_per_frame.point;
+                Vector3d pts_j = it_per_frame.point;                // 이미지 프레임 j에 대한 관찰
+                 // Feature's reprojection error
                 ProjectionTwoFrameOneCamFactor *f_td = new ProjectionTwoFrameOneCamFactor(pts_i, pts_j, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocity,
-                                                                 it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
+                                                                 it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);   
                 problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);
             }
 
@@ -1120,7 +1137,7 @@ void Estimator::optimization()
                 {
                     ProjectionTwoFrameTwoCamFactor *f = new ProjectionTwoFrameTwoCamFactor(pts_i, pts_j_right, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocityRight,
                                                                  it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
-                    problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Ex_Pose[1], para_Feature[feature_index], para_Td[0]);
+                    problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Ex_Pose[1], para_Feature[feature_index], para_Td[0]);  // para_Feature: depth of the feature
                 }
                 else
                 {
@@ -1128,7 +1145,6 @@ void Estimator::optimization()
                                                                  it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
                     problem.AddResidualBlock(f, loss_function, para_Ex_Pose[0], para_Ex_Pose[1], para_Feature[feature_index], para_Td[0]);
                 }
-               
             }
             f_m_cnt++;
         }
@@ -1152,7 +1168,7 @@ void Estimator::optimization()
         options.max_solver_time_in_seconds = SOLVER_TIME;
     TicToc t_solver;
     ceres::Solver::Summary summary;
-    ceres::Solve(options, &problem, &summary);
+    ceres::Solve(options, &problem, &summary);  // 실제 ceres solving
     //cout << summary.BriefReport() << endl;
     ROS_DEBUG("Iterations : %d", static_cast<int>(summary.iterations.size()));
     //printf("solver costs: %f \n", t_solver.toc());
@@ -1454,7 +1470,7 @@ void Estimator::slideWindow()
 
 void Estimator::slideWindowNew()
 {
-    sum_of_front++;
+    sum_of_front++; // unused. 이전 KeyFrame이후 몇 frame이 새로 추가되었는지 세어보기.
     f_manager.removeFront(frame_count);
 }
 

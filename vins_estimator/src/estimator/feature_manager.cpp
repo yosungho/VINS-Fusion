@@ -90,7 +90,8 @@ bool FeatureManager::addFeatureCheckParallax(const int frame_count, const map<in
 
         if (it == feature.end()) // feature에 등록되어 있지 않은 이전에 없던 feature_id가 들어왔다면,
         {
-            feature.push_back(FeaturePerId(feature_id, frame_count));   // 새로운 FeaturePerId 생성; FeaturePerId는 고유 id를 가진 feature들의 모집합. start_frame을 전달해준다.
+            // feature.push_back(FeaturePerId(feature_id, frame_count));   // 새로운 FeaturePerId 생성; FeaturePerId는 고유 id를 가진 feature들의 모집합. start_frame을 전달해준다.
+            feature.emplace_back(feature_id, frame_count);   // 새로운 FeaturePerId 생성; FeaturePerId는 고유 id를 가진 feature들의 모집합. start_frame을 전달해준다.
             feature.back().feature_per_frame.push_back(f_per_fra);      // 새로 만들어 넣은 객체 (.back())에 있는 vector에 신규 feature를 추가함. (신규 feature: FeaturePerFrame형태의 feature 정보가 있는 객체)
             new_feature_num++;
         }
@@ -120,14 +121,12 @@ bool FeatureManager::addFeatureCheckParallax(const int frame_count, const map<in
             assert(right_cameraId == 1);
         }
         
-        auto it = find_if(linefeature.begin(), linefeature.end(), [feature_id](const LineFeaturePerId &it)
-                          {
-            return it.feature_id == feature_id;
-                          });
+        auto it = find_if(linefeature.begin(), linefeature.end(), [feature_id](const LineFeaturePerId &it) {return it.feature_id == feature_id;});
 
         if (it == linefeature.end()) // feature에 등록되어 있지 않은 이전에 없던 feature_id가 들어왔다면,
         {
-            linefeature.push_back(LineFeaturePerId(feature_id, frame_count));   // 새로운 FeaturePerId 생성; FeaturePerId는 고유 id를 가진 feature들의 모집합. start_frame을 전달해준다.
+            // linefeature.push_back(LineFeaturePerId(feature_id, frame_count));   // 새로운 FeaturePerId 생성; FeaturePerId는 고유 id를 가진 feature들의 모집합. start_frame을 전달해준다.
+            linefeature.emplace_back(feature_id, frame_count);   // 새로운 FeaturePerId 생성; FeaturePerId는 고유 id를 가진 feature들의 모집합. start_frame을 전달해준다.
             linefeature.back().linefeature_per_frame.push_back(feat_per_frame);      // 새로 만들어 넣은 객체 (.back())에 있는 vector에 신규 feature를 추가함. (신규 feature: FeaturePerFrame형태의 feature 정보가 있는 객체)
             new_linefeature_num++;
         }
@@ -798,16 +797,16 @@ void FeatureManager::removeFront(int frame_count)
     {
         it_next++;
 
-        if (it->start_frame == frame_count)  // frame_count-1이 삭제되기 때문에 가장 최근 프레임 frame_count의 id는 i-1이 된다.
+        if (it->start_frame == frame_count)  // 가장 최근 프레임에서 뽑힌 linefeature를 가장 앞 slide(frame_count-1)에 배치한다.
         {
-            it->start_frame--;
+            it->start_frame = frame_count-1;
         }
         else
         {
-            int j = WINDOW_SIZE - 1 - it->start_frame;    // j는 프레임 i-1을 가리킵니다.
-            if (it->endFrame() < frame_count - 1)
+            int j = (WINDOW_SIZE - 1) - it->start_frame;      // 이 it의 frame이 최신 대비 얼마나 앞서서 뽑혔는지?
+            if (it->endFrame() < frame_count - 1)           // it의 feature가 현재까지 track으로 이어져오고 있지 않는다면 continue; 
                 continue;
-            it->linefeature_per_frame.erase(it->linefeature_per_frame.begin() + j);   // 이 이미지 프레임에서 피처의 관찰을 삭제합니다.
+            it->linefeature_per_frame.erase(it->linefeature_per_frame.begin() + j);   // track 으로 이어져오고 있다면
             if (it->linefeature_per_frame.size() == 0)                            // 다른 이미지 프레임에서 이 기능을 볼 수 없으면 삭제하세요.
                 linefeature.erase(it);
         }
