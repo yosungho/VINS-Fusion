@@ -15,8 +15,8 @@ Vector6d orth_to_line(Vector4d orth);
 Vector4d plk_to_orth(Vector6d plk);
 Vector6d orth_to_plk(Vector4d orth);
 
-Vector4d pi_from_ppp(Vector3d x1, Vector3d x2, Vector3d x3);
-Vector6d pipi_plk( Vector4d pi1, Vector4d pi2);
+Vector4d pi_from_ppp(const Vector3d &x1, const Vector3d &x2, const Vector3d &x3);
+Vector6d pipi_plk(const Vector4d &pi1, const Vector4d &pi2);
 Vector3d plucker_origin(Vector3d n, Vector3d v);
 Matrix3d skew_symmetric( Vector3d v );
 

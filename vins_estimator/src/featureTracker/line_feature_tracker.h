@@ -106,7 +106,7 @@ public:
     int row, col;
     std::map<uint64_t, int> num_tracked;    // id, tracked_num
     bool is_first_frame = true;
-    uint64_t allfeature_id = 1; // 0: not assigned
+    uint64_t allfeature_id = 0; // -1 : not assigned
     cv::Mat imTrack;
     cv::Mat mask;
     cv::Mat fisheye_mask;

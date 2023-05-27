@@ -252,6 +252,14 @@ void pubCameraPose(const Estimator &estimator, const std_msgs::Header &header)
             cameraposevisual.add_pose(P, R);
         }
         cameraposevisual.publish_by(pub_camera_pose_visual, odometry.header);
+
+        // // broadcasst
+        // tf::TransformBroadcaster br;
+        // tf::Transform transform;
+        // transform.setOrigin( tf::Vector3(P.x(),P.y(),P.z()) );
+        // tf::Quaternion q{R.x(), R.y(), R.z(), R.w()};
+        // transform.setRotation(q);
+        // br.sendTransform(tf::StampedTransform(transform, ros::Time(estimator.Headers[WINDOW_SIZE - 2]), "world", "car"));
     }
 }
 
@@ -324,12 +332,12 @@ void pubLineCloud(const Estimator &estimator, const std_msgs::Header &header)
     lines.type = visualization_msgs::Marker::LINE_LIST;
     lines.action = visualization_msgs::Marker::ADD;
     lines.pose.orientation.w = 1.0;
-    // lines.lifetime = ros::Duration();
+    lines.lifetime = ros::Duration();
 
     lines.id = 0; //key_poses_id++;
-    lines.scale.x = 0.3;
-    lines.scale.y = 0.3;
-    lines.scale.z = 0.3;
+    lines.scale.x = 0.2;
+    lines.scale.y = 0.2;
+    lines.scale.z = 0.2;
     lines.color.r = 1.0;
     lines.color.a = 1.0;
 
@@ -337,11 +345,12 @@ void pubLineCloud(const Estimator &estimator, const std_msgs::Header &header)
     {
         if (it_per_id.is_triangulation) {
             // std::cout << "line: " << w_pts_1.transpose() << " " << w_pts_2.transpose() << std::endl<< std::endl;
+            lines.id = it_per_id.feature_id;
             int imu_i = it_per_id.start_frame;
             Vector3d pts_1 = it_per_id.start;
             Vector3d pts_2 = it_per_id.end;
-            Vector3d w_pts_1 = estimator.Rs[imu_i] * (estimator.ric[0] * pts_1 + estimator.tic[0]) + estimator.Ps[imu_i];
-            Vector3d w_pts_2 = estimator.Rs[imu_i] * (estimator.ric[0] * pts_2 + estimator.tic[0]) + estimator.Ps[imu_i];
+            Vector3d w_pts_1 = (estimator.Rs[imu_i]*(estimator.ric[0]*pts_1 + estimator.tic[0])) + estimator.Ps[imu_i];
+            Vector3d w_pts_2 = (estimator.Rs[imu_i]*(estimator.ric[0]*pts_2 + estimator.tic[0])) + estimator.Ps[imu_i];
             
             geometry_msgs::Point p;
             p.x = w_pts_1(0);

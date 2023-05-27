@@ -94,7 +94,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> LineFeatureTracker::tr
     }
     else
     {
-        cur_frame_.reset(new FrameLines);  // 새 프레임 초기화
+        cur_frame_.reset(new FrameLines);  // 새 프레임을 만들어보자 (초기화)
         cur_frame_->time = _cur_time;
         cur_frame_->img = _img;
         cur_frame_->img1 = _img1;
@@ -127,7 +127,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> LineFeatureTracker::tr
     describeLines(cur_img, cur_lines, cur_descs);
 
     std::vector<std::pair<uint32_t, uint32_t>> match_results;
-    if (prev_lines.size() > 0) {
+    if (prev_lines.size() > 0) {    // 이전 프레임의 feature가 없었다면 매칭할 것도 없음.
         line_match.matchLines(prev_lines, cur_lines, prev_descs, cur_descs, match_results);
 
         // hand-crafted outlier rejection
@@ -137,14 +137,15 @@ map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> LineFeatureTracker::tr
         vector<uchar> status;
         for (auto match:match_results) {
             int prev_id = prev_lines[match.first][0].class_id;
-            cur_lines[match.second][0].class_id = prev_id;
+            cur_lines[match.second][0].class_id = prev_id;      // build tracks
             num_tracked[prev_id]++;
         }
     }
 
+    // until now, all feature's class_id == -1
     for (size_t i = 0; i < cur_lines.size(); i++) {
-        if (cur_lines[i][0].class_id == 0) {
-            cur_lines[i][0].class_id = allfeature_id++;
+        if (cur_lines[i][0].class_id == -1) {
+            cur_lines[i][0].class_id = allfeature_id++;  
         }
     }
 
@@ -165,7 +166,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> LineFeatureTracker::tr
     // }
 
     // making return values
-    // key: feature_id ; value: camera_id, xyz_uv_velocity
+    // [key] feature_id ; [value] camera_id, xyz_uv_velocity
     map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> featureFrame;
     vector<pair<cv::Point2f, cv::Point2f>> un_cur_lines = undistortedLineEndPoints(cur_lines, camera_[0]);
     for (size_t i = 0; i < cur_lines.size(); i++) {
@@ -196,6 +197,9 @@ map<int, vector<pair<int, Eigen::Matrix<double, 10, 1>>>> LineFeatureTracker::tr
 // }
 
 void LineFeatureTracker::detectLines(const cv::Mat &image, vector<vector<KeyLine>> &detected_lines) {
+    const int cMinimum_dist = 16;   // pixel
+    const int cMax_number_lines = 500;
+
     int num_lines;
     cv::Mat img_flt;
     image.convertTo(img_flt, CV_64FC1);
@@ -203,7 +207,7 @@ void LineFeatureTracker::detectLines(const cv::Mat &image, vector<vector<KeyLine
     double *out = lsd(&num_lines, imagePtr, img_flt.cols, img_flt.rows);
     for (int i = 0; i < num_lines; i++) {
         KeyLine kline;
-        kline.class_id = 0;
+        kline.class_id = -1;
         kline.octave = 0;
         kline.sPointInOctaveX = kline.startPointX = static_cast<float>(out[7 * i + 0]);
         kline.sPointInOctaveY = kline.startPointY = static_cast<float>(out[7 * i + 1]);
@@ -212,7 +216,7 @@ void LineFeatureTracker::detectLines(const cv::Mat &image, vector<vector<KeyLine
         cv::Point2f d_point = kline.getEndPoint() - kline.getStartPoint();
         kline.angle = std::atan2(d_point.y, d_point.x); // -pi ~ pi
         kline.lineLength = std::sqrt(d_point.dot(d_point));
-        if (kline.lineLength < 16) {
+        if (kline.lineLength < cMinimum_dist) {
             continue;
         }
         kline.pt = (kline.getStartPoint() + kline.getEndPoint()) / 2.;
@@ -221,11 +225,12 @@ void LineFeatureTracker::detectLines(const cv::Mat &image, vector<vector<KeyLine
         detected_lines.push_back(vector<KeyLine>{kline});
     }
 
-    // sort(detected_lines.begin(), detected_lines.end(), [](const vector<KeyLine>& kline1, const vector<KeyLine>& kline2){return kline1[0].lineLength > kline2[0].lineLength;});
+    // delete short-length lines
+    sort(detected_lines.begin(), detected_lines.end(), [](const vector<KeyLine>& kline1, const vector<KeyLine>& kline2){return kline1[0].lineLength > kline2[0].lineLength;});
+    if (detected_lines.size() > cMax_number_lines) {
+        detected_lines.erase(detected_lines.begin() + cMax_number_lines, detected_lines.end());
+    }
 
-    // if (detected_lines.size() > 100) {
-    //     detected_lines.erase(detected_lines.begin() + 200, detected_lines.end());
-    // }
     free((void *) out);
 }
 

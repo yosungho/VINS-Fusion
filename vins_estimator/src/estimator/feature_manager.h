@@ -84,7 +84,7 @@ class LineFeaturePerFrame
     LineFeaturePerFrame(const Eigen::Matrix<double, 10, 1> &_line, double td)
     {
         unline = _line.head(6);
-        line = _line.tail<4>();
+        line = _line.tail<4>();   // endpoints coordinates in an image
 
         cur_td = td;
         is_stereo = false;
@@ -110,10 +110,11 @@ class LineFeaturePerId
     int used_num;
     Vector2d estimated_depth;
     bool is_triangulation;
+
     Vector6d line_plucker;
     Vector3d start;
     Vector3d end;
-    int removed_cnt;
+    int removed_cnt;  // sliding window가 진행될 수록 지워서 없어진 feature의 개수 count
     int solve_flag; // 0 haven't solve yet; 1 solve succ; 2 solve fail;
 
     LineFeaturePerId(int _feature_id, int _start_frame)
@@ -148,16 +149,28 @@ class FeatureManager
     void triangulateLines(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vector3d tic[], Matrix3d ric[]);
     double triangulateLine(const Eigen::Matrix<double, 3, 4> &Pose0, const Eigen::Matrix<double, 3, 4> &Pose1,
                             const Vector6d &line0, const Vector6d &line1, Vector6d &line_plucker, Vector6d &line_endpoints);
+    Vector6d getLineEndpoints(const Vector6d &line0_plucker, const Vector3d &pt_st, const Vector3d &pt_ed);
+    MatrixXd getLineOrthVector(Vector3d Ps[], Vector3d tic[], Matrix3d ric[]);
+    void setLineOrth(MatrixXd x,Vector3d P[], Matrix3d R[], Vector3d tic[], Matrix3d ric[]);
+    int getLineFeatureCount();
     void initFramePoseByPnP(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vector3d tic[], Matrix3d ric[]);
     bool solvePoseByPnP(Eigen::Matrix3d &R_initial, Eigen::Vector3d &P_initial, 
                             vector<cv::Point2f> &pts2D, vector<cv::Point3f> &pts3D);
+    
     void removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3d marg_P, Eigen::Matrix3d new_R, Eigen::Vector3d new_P);
     void removeBack();
     void removeFront(int frame_count);
+
+    void removeBackShiftLine(Eigen::Matrix3d marg_R, Eigen::Vector3d marg_P, Eigen::Matrix3d new_R, Eigen::Vector3d new_P);
+    void removeBackLine();
+    void removeFrontLine(int frame_count);
+    
     void removeOutlier(set<int> &outlierIndex);
+    void removeLineOutlier(Vector3d Ps[], Vector3d tic[], Matrix3d ric[]);
+    double reprojection_error( Vector4d obs, Matrix3d Rwc, Vector3d twc, Vector6d line_w );
     list<FeaturePerId> feature;
     list<LineFeaturePerId> linefeature;
-    int last_track_num;
+    int last_track_num;           
     double last_average_parallax;
     int new_feature_num;
     int long_track_num;

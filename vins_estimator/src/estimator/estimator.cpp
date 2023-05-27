@@ -182,11 +182,11 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
         pubTrackImage(imgTrack, t, "point");
 
         cv::Mat lineimgTrack = linefeatureTracker.getTrackImage();
+        pubTrackImage(lineimgTrack, t, "line");
         std::ostringstream oss;
-        oss << "/home/sungho/plvinsfusion_ws/debug/line_track_" << inputImageCnt << ".png";
+        oss << "/home/sungho/plvins_ws/debug/line_track_" << inputImageCnt << ".png";
         std::string fname = oss.str();
         cv::imwrite(fname, lineimgTrack);
-        // pubTrackImage(lineimgTrack, t, "line");
     }
     
     if(MULTIPLE_THREAD)  
@@ -442,7 +442,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     }
     else
     {
-        marginalization_flag = MARGIN_SECOND_NEW;   // 이전 frame이 KeyFrame이 아니었으니 margin out하고 현재 frame과 함께 opt.
+        marginalization_flag = MARGIN_SECOND_NEW;   // 이전 frame이 KeyFrame이 아니었으니 margin out하고 현재 frame과 함께 optm.
         //printf("non-keyframe\n");
     }
 
@@ -451,7 +451,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());
     Headers[frame_count] = header;
 
-    ImageFrame imageframe(image, header);   // initialStructure, VisualInertialAlignment 과정에 사용됨. ImageFrame: 한 이미지에 대응되는 feature들, Pose, time, IntegrationBase
+    ImageFrame imageframe(image, header);   // initialStructure, VisualInertialAlignment 과정에 사용됨. ImageFrame: 한 이미지에 대응되는 feature들, Pose, time, IntegrationBase 저장.
     imageframe.pre_integration = tmp_pre_integration;
     all_image_frame.insert(make_pair(header, imageframe));
     tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
@@ -567,10 +567,11 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
         f_manager.triangulateLines(frame_count, Ps, Rs, tic, ric);
         
+        Optimization_LineOnly();
         optimization();
         set<int> removeIndex;
-        outliersRejection(removeIndex); // reprojection error가 큰 feature 지우기
-        f_manager.removeOutlier(removeIndex);   // 실제로 feature 지우는 코드
+        outliersRejection(removeIndex);         // optm된 pose기준, reprojection error가 큰 feature 지우기
+        f_manager.removeOutlier(removeIndex);   // 실제로 feature 지우는 곳
         if (! MULTIPLE_THREAD)
         {
             featureTracker.removeOutliers(removeIndex);     // tracker에 해당 id는 tracking할 필요 없다고 알림
@@ -589,7 +590,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             return;
         }
 
-        slideWindow();
+        slideWindow();      // sliding window 내의 feature 관리
         f_manager.removeFailures();
         // prepare output of VINS
         key_poses.clear();
@@ -891,6 +892,43 @@ void Estimator::vector2double()
     para_Td[0][0] = td;
 }
 
+void Estimator::vector2double_LineOnly()
+{
+    for (int i = 0; i <= WINDOW_SIZE; i++)
+    {
+        para_Pose[i][0] = Ps[i].x();
+        para_Pose[i][1] = Ps[i].y();
+        para_Pose[i][2] = Ps[i].z();
+        Quaterniond q{Rs[i]};
+        para_Pose[i][3] = q.x();
+        para_Pose[i][4] = q.y();
+        para_Pose[i][5] = q.z();
+        para_Pose[i][6] = q.w();
+    }
+    for (int i = 0; i < NUM_OF_CAM; i++)
+    {
+        para_Ex_Pose[i][0] = tic[i].x();
+        para_Ex_Pose[i][1] = tic[i].y();
+        para_Ex_Pose[i][2] = tic[i].z();
+        Quaterniond q{ric[i]};
+        para_Ex_Pose[i][3] = q.x();
+        para_Ex_Pose[i][4] = q.y();
+        para_Ex_Pose[i][5] = q.z();
+        para_Ex_Pose[i][6] = q.w();
+    }
+
+    MatrixXd lineorth = f_manager.getLineOrthVector(Ps,tic,ric);
+    for (int i = 0; i < f_manager.getLineFeatureCount(); ++i) {
+        para_LineFeature[i][0] = lineorth.row(i)[0];
+        para_LineFeature[i][1] = lineorth.row(i)[1];
+        para_LineFeature[i][2] = lineorth.row(i)[2];
+        para_LineFeature[i][3] = lineorth.row(i)[3];
+        if(i > NUM_OF_F) {
+            std::cerr << "vector2double_LineOnly; i > NUM_OF_F: 1000  1000 1000 1000 1000 \n\n";
+        }
+    }
+}
+
 void Estimator::double2vector()
 {
     Vector3d origin_R0 = Utility::R2ypr(Rs[0]);
@@ -977,6 +1015,20 @@ void Estimator::double2vector()
     if(USE_IMU)
         td = para_Td[0][0];
 
+}
+
+void Estimator::double2vector_LineOnly()
+{
+    MatrixXd lineorth_vec(f_manager.getLineFeatureCount(),4);
+    for (int i = 0; i < f_manager.getLineFeatureCount(); ++i) {
+        Vector4d orth(para_LineFeature[i][0],
+                      para_LineFeature[i][1],
+                      para_LineFeature[i][2],
+                      para_LineFeature[i][3]);
+        lineorth_vec.row(i) = orth;
+
+    }
+    f_manager.setLineOrth(lineorth_vec,Ps,Rs,tic,ric);
 }
 
 bool Estimator::failureDetection()
@@ -1353,10 +1405,69 @@ void Estimator::optimization()
     //printf("whole time for ceres: %f \n", t_whole.toc());
 }
 
+void Estimator::Optimization_LineOnly()
+{
+    TicToc t_whole, t_prepare;
+    vector2double_LineOnly();    // optimization할 parameter를 param_* 변수에 저장
+
+    ceres::Problem problem;
+    ceres::LossFunction *loss_function;
+    loss_function = new ceres::HuberLoss(1.0);
+
+    int f_m_cnt = 0;
+    int feature_index = -1;
+    for (auto &it_per_id : f_manager.linefeature)
+    {
+        it_per_id.used_num = it_per_id.linefeature_per_frame.size();
+        if (it_per_id.used_num < 4) // feature가 4개는 있어야 line opt 진행한다.
+            continue;
+
+        ++feature_index;
+
+        ceres::LocalParameterization *local_parameterization_line = new LineOrthParameterization();
+        problem.AddParameterBlock( para_LineFeature[feature_index], SIZE_LINE, local_parameterization_line);  // p,q
+
+        int imu_i = it_per_id.start_frame,imu_j = imu_i - 1;
+        for (auto &it_per_frame : it_per_id.linefeature_per_frame)
+        {
+            imu_j++;
+            if (imu_i == imu_j)
+            {
+                //continue;
+            }
+            Vector6d unline = it_per_frame.unline;                          // 프레임 j 이미지에서 관찰
+            Vector4d obs{unline(0),unline(1),unline(3),unline(4)};
+            lineProjectionFactor *f = new lineProjectionFactor(obs);     // reprejection error
+            problem.AddResidualBlock(f, loss_function,
+                                     para_Pose[imu_j],
+                                     para_Ex_Pose[0],
+                                     para_LineFeature[feature_index]);
+            f_m_cnt++;
+        }
+    }
+    if(feature_index < 3)
+    {
+        return;
+    }
+    ceres::Solver::Options options;
+    options.linear_solver_type = ceres::DENSE_SCHUR;
+    //options.trust_region_strategy_type = ceres::DOGLEG;
+    options.max_num_iterations = NUM_ITERATIONS;
+    ceres::Solver::Summary summary;
+    ceres::Solve (options, &problem, & summary);
+
+    //std::cout <<"!!!!!!!!!!!!!onlyLineOpt!!!!!!!!!!!!!\n";
+    double2vector_LineOnly();
+    //std::cout << summary.FullReport()<<std::endl;
+
+    f_manager.removeLineOutlier(Ps,tic,ric);
+}
+
 void Estimator::slideWindow()
 {
     TicToc t_margin;
-    if (marginalization_flag == MARGIN_OLD) // 목적: index가 0인 가장 오래된 값을 지우며 slide를 움직인다.
+    // MARGIN_OLD; 목적: index가 0인 가장 오래된 값을 지우며 slide를 움직인다.
+    if (marginalization_flag == MARGIN_OLD) 
     {
         if (frame_count < WINDOW_SIZE){ // slide는 꽉차야 움직인다.
             return;
@@ -1456,25 +1567,28 @@ void Estimator::slideWindowNew()
 {
     sum_of_front++;
     f_manager.removeFront(frame_count);
+    f_manager.removeFrontLine(frame_count);
 }
 
 void Estimator::slideWindowOld()
 {
     sum_of_back++;
 
-    bool shift_depth = solver_flag == NON_LINEAR ? true : false;
+    bool shift_depth = (solver_flag == NON_LINEAR ? true : false);
     if (shift_depth)
     {
-        Matrix3d R0, R1;
-        Vector3d P0, P1;
-        R0 = back_R0 * ric[0];  // w_R_c = w_R_i @ i_R_c
-        R1 = Rs[0] * ric[0];    // 이 때 Rs[0]는 새로 옮겨진 w_R_i
-        P0 = back_P0 + back_R0 * tic[0];
-        P1 = Ps[0] + Rs[0] * tic[0];
-        f_manager.removeBackShiftDepth(R0, P0, R1, P1);
+        Matrix3d R0_wc, R1_wc;
+        Vector3d P0_wc, P1_wc;
+        R0_wc = back_R0 * ric[0];  // w_R_c = w_R_i @ i_R_c
+        R1_wc = Rs[0] * ric[0];    // 이 때 Rs[0]는 새로 옮겨진 w_R_i
+        P0_wc = back_P0 + back_R0 * tic[0];
+        P1_wc = Ps[0] + Rs[0] * tic[0];
+        f_manager.removeBackShiftDepth(R0_wc, P0_wc, R1_wc, P1_wc);
+        f_manager.removeBackShiftLine(R0_wc, P0_wc, R1_wc, P1_wc);
     }
     else
         f_manager.removeBack();
+        f_manager.removeBackLine();
 }
 
 

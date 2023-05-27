@@ -34,6 +34,8 @@
 #include "../factor/projectionTwoFrameOneCamFactor.h"
 #include "../factor/projectionTwoFrameTwoCamFactor.h"
 #include "../factor/projectionOneFrameTwoCamFactor.h"
+#include "../factor/line_parameterization.h"
+#include "../factor/line_projection_factor.h"
 #include "../featureTracker/feature_tracker.h"
 #include "../featureTracker/line_feature_tracker.h"
 
@@ -64,8 +66,11 @@ class Estimator
     void slideWindowNew();
     void slideWindowOld();
     void optimization();
+    void Optimization_LineOnly();
     void vector2double();
     void double2vector();
+    void vector2double_LineOnly();
+    void double2vector_LineOnly();
     bool failureDetection();
     bool getIMUInterval(double t0, double t1, vector<pair<double, Eigen::Vector3d>> &accVector, 
                                               vector<pair<double, Eigen::Vector3d>> &gyrVector);
@@ -117,7 +122,7 @@ class Estimator
     Matrix3d ric[2];
     Vector3d tic[2];
 
-    Vector3d        Ps[(WINDOW_SIZE + 1)];
+    Vector3d        Ps[(WINDOW_SIZE + 1)];      // 배열로 window가 관리되고 있는데, 사실 std::deque 같은 자료형을 활용해야 자료의 복사/이동 없이져서 연산이 좋아진다.
     Vector3d        Vs[(WINDOW_SIZE + 1)];
     Matrix3d        Rs[(WINDOW_SIZE + 1)];
     Vector3d        Bas[(WINDOW_SIZE + 1)];
@@ -156,6 +161,7 @@ class Estimator
     double para_Pose[WINDOW_SIZE + 1][SIZE_POSE];
     double para_SpeedBias[WINDOW_SIZE + 1][SIZE_SPEEDBIAS];
     double para_Feature[NUM_OF_F][SIZE_FEATURE];
+    double para_LineFeature[NUM_OF_F][SIZE_LINE];
     double para_Ex_Pose[2][SIZE_POSE];
     double para_Retrive_Pose[SIZE_POSE];
     double para_Td[1][1];

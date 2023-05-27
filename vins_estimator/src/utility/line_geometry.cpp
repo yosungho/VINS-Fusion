@@ -131,15 +131,15 @@ Vector6d orth_to_plk(Vector4d orth)
  (a,b,c)^T = vector(AO) cross vector(BO)
  d = O.dot(cross(AO,BO))
  */
-Vector4d pi_from_ppp(Vector3d x1, Vector3d x2, Vector3d x3) {
+Vector4d pi_from_ppp(const Vector3d &x1, const Vector3d &x2, const Vector3d &x3) {
     Vector4d pi;
-    pi << ( x1 - x3 ).cross( x2 - x3 ), - x3.dot( x1.cross( x2 ) ); // d = - x3.dot( (x1-x3).cross( x2-x3 ) ) = - x3.dot( x1.cross( x2 ) )
-
+    Vector3d normal = (x1 - x3).cross(x2 - x3);
+    pi << normal, -x3.dot(normal); // d = - x3.dot( (x1-x3).cross( x2-x3 ) ) = - x3.dot( x1.cross( x2 ) )
     return pi;
 }
 
 // 두 평면이 교차하여 직선의 플러커 좌표를 얻습니다.
-Vector6d pipi_plk( Vector4d pi1, Vector4d pi2){
+Vector6d pipi_plk(const Vector4d &pi1, const Vector4d &pi2){
     Vector6d plk;
     Matrix4d dp = pi1 * pi2.transpose() - pi2 * pi1.transpose();
 
@@ -213,6 +213,7 @@ Vector6d plk_to_pose( Vector6d plk_w, Eigen::Matrix3d Rcw, Eigen::Vector3d tcw )
     return plk_c;
 }
 
+// 카메라 좌표계에서 월드 좌표계로
 Vector6d plk_from_pose( Vector6d plk_c, Eigen::Matrix3d Rcw, Eigen::Vector3d tcw ) {
 
     Eigen::Matrix3d Rwc = Rcw.transpose();

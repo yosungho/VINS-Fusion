@@ -43,6 +43,8 @@ add_library(vins_lib
     src/factor/projectionTwoFrameTwoCamFactor.cpp
     src/factor/projectionOneFrameTwoCamFactor.cpp
     src/factor/marginalization_factor.cpp
+    src/factor/line_projection_factor.cpp                     # line factor
+    src/factor/line_parameterization.cpp
     src/utility/utility.cpp
     src/utility/visualization.cpp
     src/utility/CameraPoseVisualization.cpp
